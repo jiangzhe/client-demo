@@ -34,7 +34,8 @@ func main() {
 		kube.DefaultLoggingHandler,
 		kube.DefaultIndexers())
 
-	stopCh := mirror.Start()
+	stopCh := make(chan struct{})
+	mirror.Start(stopCh)
 
 	fmt.Printf("Deployments: %v\n", len(mirror.List(kube.ResourceDeployment)))
 	fmt.Println("Deployments in tdcsys:")
