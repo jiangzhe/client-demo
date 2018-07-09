@@ -10,6 +10,7 @@ import (
 	"flag"
 	"fmt"
 	"k8s.io/apimachinery/pkg/api/meta"
+	"context"
 )
 
 func main() {
@@ -19,6 +20,9 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
 	mirror := kube.NewMirror(clientset)
 	mirror.AddResource(
@@ -34,7 +38,7 @@ func main() {
 		kube.DefaultLoggingHandler,
 		kube.DefaultIndexers())
 
-	stopCh := mirror.Start()
+	mirror.StartUntilSynced(ctx)
 
 	fmt.Printf("Deployments: %v\n", len(mirror.List(kube.ResourceDeployment)))
 	fmt.Println("Deployments in tdcsys:")

@@ -14,6 +14,7 @@ import (
 	//"k8s.io/apimachinery/pkg/api/meta"
 	"time"
 	"github.com/golang/glog"
+	"context"
 )
 
 //func main() {
@@ -39,7 +40,8 @@ type K8sMirror interface {
 	AddResource(resource ResourceType, objType runtime.Object, listFunc ListFunc, watchFunc WatchFunc,
 		resyncPeriod time.Duration, handler cache.ResourceEventHandler, indexers cache.Indexers)
 
-	Start() (stopCh chan<- struct{})
+	Start(ctx context.Context)
+	StartUntilSynced(ctx context.Context)
 	List(resource ResourceType) []interface{}
 	ListNamespaced(resource ResourceType, namespace string) []interface{}
 	ListKeys(resource ResourceType) []string
@@ -60,7 +62,6 @@ const (
 type mirror struct {
 	clientset *kubernetes.Clientset
 	informers map[ResourceType]cache.SharedIndexInformer
-	stopCh chan struct{}
 }
 
 // inject clientset to cache.ListFunc
@@ -92,19 +93,25 @@ func (m *mirror) AddResource(
 		m.informers[resource] = indexInformer
 }
 
-func (m *mirror) Start() chan<-struct{} {
+func (m *mirror) Start(ctx context.Context) {
 	for _, informer := range m.informers {
-		go informer.Run(m.stopCh)
+		go informer.Run(ctx.Done())
 	}
+
+}
+
+// block until all resources are synced
+func (m *mirror) StartUntilSynced(ctx context.Context) {
+	m.Start(ctx)
 	for resource, informer := range m.informers {
-		if !cache.WaitForCacheSync(m.stopCh, informer.HasSynced) {
+		if !cache.WaitForCacheSync(ctx.Done(), informer.HasSynced) {
 			utilruntime.HandleError(fmt.Errorf("timeout waiting for %v to sync", resource))
 		} else {
 			glog.V(4).Infof("Resource %v synced\n", resource)
 		}
 	}
-	return m.stopCh
 }
+
 
 func (m *mirror) List(resource ResourceType) []interface{} {
 	informer, exists := m.informers[resource]
@@ -155,7 +162,6 @@ func NewMirror(clientset *kubernetes.Clientset) K8sMirror {
 	return &mirror{
 		clientset: clientset,
 		informers: map[ResourceType]cache.SharedIndexInformer{},
-		stopCh: make(chan struct{}),
 	}
 }
 
@@ -165,4 +171,8 @@ func NewClient(kubeconfigPath string) (*kubernetes.Clientset, error) {
 		return nil, err
 	}
 	return kubernetes.NewForConfig(config)
+}
+
+func NamespaceKeyFunc(namespace string, name string) string {
+	return namespace + "/" + name
 }
