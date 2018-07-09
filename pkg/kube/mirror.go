@@ -5,34 +5,17 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/tools/cache"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	//corev1 "k8s.io/api/core/v1"
+	extensionsv1beta1 "k8s.io/api/extensions/v1beta1"
+	corev1 "k8s.io/api/core/v1"
+	appsv1beta1 "k8s.io/api/apps/v1beta1"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"fmt"
-	//extensionsv1beta1 "k8s.io/api/extensions/v1beta1"
-	//"k8s.io/apimachinery/pkg/api/meta"
 	"time"
 	"github.com/golang/glog"
 	"context"
 )
-
-//func main() {
-//	mirror, err := NewMirror("/srv/kubernetes/kubeconfig")
-//	if err != nil {
-//		panic(err)
-//	}
-//	stopCh := mirror.Start()
-//
-//	for _, obj := range mirror.List(ResourceDeployment) {
-//		metadata, err := meta.Accessor(obj)
-//		if err != nil {
-//			panic(err)
-//		}
-//		fmt.Printf("object name is: %v\n", metadata.GetName())
-//	}
-//	stopCh<-struct{}{}
-//}
 
 // mirror is local store of kubernetes resources,
 // support list all resources
@@ -55,7 +38,9 @@ const (
 	ResourcePod = "pod"
 	ResourceDeployment = "deployment"
 	ResourceStatefulset = "statefulset"
+	ResourceDaemonset = "daemonset"
 	ResourceService = "service"
+	ResourceEndpoints = "endpoints"
 	ResourceConfigmap = "configmap"
 )
 
@@ -171,6 +156,120 @@ func NewClient(kubeconfigPath string) (*kubernetes.Clientset, error) {
 		return nil, err
 	}
 	return kubernetes.NewForConfig(config)
+}
+
+// default mirror includes all resource types
+func DefaultMirrorWithAllResources(clientset *kubernetes.Clientset) K8sMirror {
+	m := &mirror{
+		clientset: clientset,
+		informers: map[ResourceType]cache.SharedIndexInformer{},
+	}
+
+	m.AddResource(
+		ResourceNamespace,
+		&corev1.Namespace{},
+		func(clientset *kubernetes.Clientset, options metav1.ListOptions) (runtime.Object, error) {
+			return clientset.CoreV1().Namespaces().List(options)
+		},
+		func(clientset *kubernetes.Clientset, options metav1.ListOptions) (watch.Interface, error) {
+			return clientset.CoreV1().Namespaces().Watch(options)
+		},
+		15 * time.Minute,
+		DefaultLoggingHandler,
+		cache.Indexers{})
+
+	m.AddResource(
+		ResourcePod,
+		&corev1.Pod{},
+		func(clientset *kubernetes.Clientset, options metav1.ListOptions) (runtime.Object, error) {
+			return clientset.CoreV1().Pods(metav1.NamespaceAll).List(options)
+		},
+		func(clientset *kubernetes.Clientset, options metav1.ListOptions) (watch.Interface, error) {
+			return clientset.CoreV1().Pods(metav1.NamespaceAll).Watch(options)
+		},
+		15 * time.Minute,
+		DefaultLoggingHandler,
+		DefaultIndexers())
+
+	m.AddResource(
+		ResourceDeployment,
+		&extensionsv1beta1.Deployment{},
+		func(clientset *kubernetes.Clientset, options metav1.ListOptions) (runtime.Object, error) {
+			return clientset.ExtensionsV1beta1().Deployments(metav1.NamespaceAll).List(options)
+		},
+		func(clientset *kubernetes.Clientset, options metav1.ListOptions) (watch.Interface, error) {
+			return clientset.ExtensionsV1beta1().Deployments(metav1.NamespaceAll).Watch(options)
+		},
+		15 * time.Minute,
+		DefaultLoggingHandler,
+		DefaultIndexers())
+
+	m.AddResource(
+		ResourceStatefulset,
+		&appsv1beta1.StatefulSet{},
+		func(clientset *kubernetes.Clientset, options metav1.ListOptions) (runtime.Object, error) {
+			return clientset.AppsV1beta1().StatefulSets(metav1.NamespaceAll).List(options)
+		},
+		func(clientset *kubernetes.Clientset, options metav1.ListOptions) (watch.Interface, error) {
+			return clientset.AppsV1beta1().StatefulSets(metav1.NamespaceAll).Watch(options)
+		},
+		15 * time.Minute,
+		DefaultLoggingHandler,
+		DefaultIndexers())
+
+	m.AddResource(
+		ResourceDaemonset,
+		&extensionsv1beta1.DaemonSet{},
+		func(clientset *kubernetes.Clientset, options metav1.ListOptions) (runtime.Object, error) {
+			return clientset.ExtensionsV1beta1().DaemonSets(metav1.NamespaceAll).List(options)
+		},
+		func(clientset *kubernetes.Clientset, options metav1.ListOptions) (watch.Interface, error) {
+			return clientset.ExtensionsV1beta1().DaemonSets(metav1.NamespaceAll).Watch(options)
+		},
+		15 * time.Minute,
+		DefaultLoggingHandler,
+		DefaultIndexers())
+
+	m.AddResource(
+		ResourceService,
+		&corev1.Service{},
+		func(clientset *kubernetes.Clientset, options metav1.ListOptions) (runtime.Object, error) {
+			return clientset.CoreV1().Services(metav1.NamespaceAll).List(options)
+		},
+		func(clientset *kubernetes.Clientset, options metav1.ListOptions) (watch.Interface, error) {
+			return clientset.CoreV1().Services(metav1.NamespaceAll).Watch(options)
+		},
+		15 * time.Minute,
+		DefaultLoggingHandler,
+		DefaultIndexers())
+
+	m.AddResource(
+		ResourceConfigmap,
+		&corev1.ConfigMap{},
+		func(clientset *kubernetes.Clientset, options metav1.ListOptions) (runtime.Object, error) {
+			return clientset.CoreV1().ConfigMaps(metav1.NamespaceAll).List(options)
+		},
+		func(clientset *kubernetes.Clientset, options metav1.ListOptions) (watch.Interface, error) {
+			return clientset.CoreV1().ConfigMaps(metav1.NamespaceAll).Watch(options)
+		},
+		15 * time.Minute,
+		DefaultLoggingHandler,
+		DefaultIndexers())
+
+	m.AddResource(
+		ResourceEndpoints,
+		&corev1.Endpoints{},
+		func(clientset *kubernetes.Clientset, options metav1.ListOptions) (runtime.Object, error) {
+			return clientset.CoreV1().Endpoints(metav1.NamespaceAll).List(options)
+		},
+		func(clientset *kubernetes.Clientset, options metav1.ListOptions) (watch.Interface, error) {
+			return clientset.CoreV1().Endpoints(metav1.NamespaceAll).Watch(options)
+		},
+		15 * time.Minute,
+		DefaultLoggingHandler,
+		DefaultIndexers())
+
+	return m
 }
 
 func NamespaceKeyFunc(namespace string, name string) string {
